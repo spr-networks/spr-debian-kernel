@@ -1,0 +1,66 @@
+name: Build RPi Trixie Kernel
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    name: Build Kernel
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone kernel source
+        run: git clone --branch rpi-6.18.y --depth=1 https://github.com/raspberrypi/linux.git
+
+      - name: Build Docker image
+        run: docker build -t rpi-kernel-builder .
+
+      - name: Build kernel
+        run: |
+          mkdir -p output
+          docker run --rm \
+            -v ${{ github.workspace }}/linux:/build/linux \
+            -v ${{ github.workspace }}/output:/output \
+            rpi-kernel-builder
+
+      - name: Upload artifacts
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-debs
+          path: output/*.deb
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: output/*.deb
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/*.deb
+          generate_release_notes: true
+
+      - name: Update latest release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+          git tag -d latest 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+          gh release create latest output/*.deb \
+            --title "Latest Kernel Build" \
+            --notes "Latest kernel debs from ${GITHUB_REF_NAME}" \
+            --prerelease
