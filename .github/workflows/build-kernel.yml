@@ -16,6 +16,9 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - name: Clean workspace
+        run: docker run --rm -v ${{ github.workspace }}:/workspace debian:trixie rm -rf /workspace/linux /workspace/output
+
       - name: Checkout
         uses: actions/checkout@v4
 
