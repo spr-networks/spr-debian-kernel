@@ -1,7 +1,7 @@
 # Raspberry Pi Kernel Builder — Raspbian Trixie (rpi-6.18.y)
 #
-# Builds the full RPi kernel with ath12k, r8169 (RTL8125B), KVM, and virtio support,
-# producing installable .deb packages.
+# Builds the full RPi kernel with SPR networking stack support:
+#   ath12k, mt7915e/mt7916, r8169, KVM/VFIO, virtio, BPF, nftables
 #
 # Usage:
 #   ./build.sh
@@ -34,58 +34,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG DEFCONFIG=bcm2712_defconfig
 ENV DEFCONFIG=${DEFCONFIG}
 
+COPY spr.config /spr.config
+
 WORKDIR /build/linux
 
 CMD set -ex && \
-    # ── Configure kernel ─────────────────────────────────────────── \
+    # ── Merge defconfig with SPR config fragment ─────────────────── \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${DEFCONFIG} && \
-    # Enable ath12k (Qualcomm WiFi 7 / WiFi 6E) and dependencies \
-    scripts/config \
-        --module CFG80211 \
-        --module MAC80211 \
-        --enable QRTR \
-        --module QRTR_MHI \
-        --enable MHI_BUS \
-        --enable MHI_BUS_PCI_GENERIC \
-        --module ATH12K && \
-    # Ensure r8169 is modular (in-tree driver covers RTL8125B) \
-    scripts/config --module R8169 && \
-    # KVM hypervisor support \
-    scripts/config \
-        --enable VIRTUALIZATION \
-        --enable KVM \
-        --enable VHOST_NET \
-        --enable VHOST_VSOCK && \
-    # Virtio guest/host drivers \
-    scripts/config \
-        --enable VIRTIO \
-        --enable VIRTIO_PCI \
-        --enable VIRTIO_MMIO \
-        --module VIRTIO_NET \
-        --module VIRTIO_BLK \
-        --module VIRTIO_SCSI \
-        --module VIRTIO_CONSOLE \
-        --module VIRTIO_BALLOON \
-        --module VIRTIO_INPUT \
-        --module VIRTIO_FS && \
-    # VM sockets and 9P file sharing \
-    scripts/config \
-        --module VSOCK \
-        --module NET_9P_VIRTIO \
-        --module VIRTIO_GPU \
-        --enable IRQ_BYPASS && \
-    # VFIO for PCIe device passthrough to VMs \
-    scripts/config \
-        --enable VFIO \
-        --enable VFIO_PCI \
-        --enable VFIO_IOMMU_TYPE1 \
-        --enable IOMMU_SUPPORT \
-        --enable ARM_SMMU_V3 && \
-    # Resolve all kconfig dependencies \
+    ./scripts/kconfig/merge_config.sh -m .config /spr.config && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig && \
-    # Verify configs \
-    grep 'CONFIG_ATH12K' .config && \
-    grep 'CONFIG_R8169' .config && \
+    # Verify key configs \
+    grep 'CONFIG_ATH12K=m' .config && \
+    grep 'CONFIG_MT7915E=m' .config && \
+    grep 'CONFIG_R8169=m' .config && \
     grep 'CONFIG_KVM=y' .config && \
     grep 'CONFIG_VFIO=y' .config && \
     grep 'CONFIG_VIRTIO=y' .config && \
