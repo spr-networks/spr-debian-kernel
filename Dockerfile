@@ -47,6 +47,7 @@ CMD set -ex && \
     grep 'CONFIG_ATH12K=m' .config && \
     grep 'CONFIG_MT7915E=m' .config && \
     grep 'CONFIG_R8169=m' .config && \
+    grep 'CONFIG_BRCMFMAC_AP_VLAN=y' .config && \
     grep 'CONFIG_KVM=y' .config && \
     grep 'CONFIG_VFIO=y' .config && \
     grep 'CONFIG_VIRTIO=y' .config && \

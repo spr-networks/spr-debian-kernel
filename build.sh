@@ -12,14 +12,23 @@ if [ ! -d "${SCRIPT_DIR}/linux" ]; then
     git clone --branch "${KERNEL_BRANCH}" --depth=1 "${KERNEL_REPO}" "${SCRIPT_DIR}/linux"
 fi
 
-# Build the Docker image
+# Apply patches
+if [ -d "${SCRIPT_DIR}/patches" ]; then
+    echo "=== Applying patches ==="
+    for p in "${SCRIPT_DIR}/patches/"*.patch; do
+        echo "  Applying $(basename "$p")"
+        git -C "${SCRIPT_DIR}/linux" apply "$p"
+    done
+fi
+
+# Build the Docker image (x86_64 for cross-compilation)
 echo "=== Building Docker image ==="
-docker build -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+docker build --platform linux/amd64 -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
 
 # Run the kernel build
 echo "=== Starting kernel build ==="
 mkdir -p "${SCRIPT_DIR}/output"
-docker run --rm \
+docker run --rm --platform linux/amd64 \
     -v "${SCRIPT_DIR}/linux:/build/linux" \
     -v "${SCRIPT_DIR}/output:/output" \
     "${IMAGE_NAME}"
