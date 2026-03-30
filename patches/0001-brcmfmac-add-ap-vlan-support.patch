@@ -12,7 +12,7 @@
 +	  Enables AP/VLAN interface support.
 +
 --- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.h	2024-08-08 19:34:29
-+++ brcmfmac/core.h	2026-03-28 16:26:26
++++ brcmfmac/core.h	2026-03-30 12:18:46
 @@ -11,6 +11,9 @@
  #define BRCMFMAC_CORE_H
  
@@ -32,16 +32,15 @@
   */
  struct brcmf_if {
  	struct brcmf_pub *drvr;
-@@ -202,8 +207,32 @@
+@@ -202,8 +207,31 @@
  	struct in6_addr ipv6_addr_tbl[NDOL_MAX_ENTRIES];
  	u8 ipv6addr_idx;
  	bool fwil_fwerr;
 +
++	struct brcmf_if *parent_ifp; /* AP_VLAN: parent AP interface */
 +#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	/* AP_VLAN support */
 +	struct rhashtable sta_vlan_map;
 +	bool sta_vlan_map_init;
-+	struct brcmf_if *parent_ifp;
 +#endif
  };
  
@@ -65,7 +64,7 @@
  int brcmf_netdev_wait_pend8021x(struct brcmf_if *ifp);
  
  /* Return pointer to interface name */
-@@ -222,6 +251,31 @@
+@@ -222,6 +250,31 @@
  void brcmf_net_detach(struct net_device *ndev, bool locked);
  int brcmf_net_mon_attach(struct brcmf_if *ifp);
  void brcmf_net_setcarrier(struct brcmf_if *ifp, bool on);
@@ -401,7 +400,7 @@
  {
  	struct net_device *ndev;
 --- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c	2024-08-08 19:34:29
-+++ brcmfmac/cfg80211.c	2026-03-30 11:50:01
++++ brcmfmac/cfg80211.c	2026-03-30 12:28:40
 @@ -500,7 +500,10 @@
  		.num_different_channels = 1,
  	};
@@ -436,21 +435,11 @@
  
  	params.iftype_num[new_type]++;
  	return cfg80211_check_combinations(cfg->wiphy, &params);
-@@ -970,7 +978,113 @@
+@@ -970,7 +978,119 @@
  
  	return 0;
  }
 +
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+/**
-+ * brcmf_vlan_add_vif() - create AP_VLAN virtual interface (software-only).
-+ *
-+ * @wiphy: wiphy of new interface.
-+ * @name: name of the new interface.
-+ *
-+ * Creates a software-only netdev that shares the parent AP's firmware
-+ * interface. No firmware commands are issued.
-+ */
 +static struct wireless_dev *brcmf_vlan_add_vif(struct wiphy *wiphy,
 +					       const char *name)
 +{
@@ -459,6 +448,9 @@
 +	struct net_device *ndev;
 +	struct brcmf_if *ifp, *parent_ifp = NULL;
 +	int err;
++
++	if (!IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN))
++		return ERR_PTR(-EOPNOTSUPP);
 +
 +	/* Find a running AP interface to be the parent */
 +	list_for_each_entry(ap_vif, &cfg->vif_list, list) {
@@ -496,7 +488,6 @@
 +	ndev->priv_destructor = brcmf_cfg80211_free_netdev;
 +	SET_NETDEV_DEV(ndev, wiphy_dev(cfg->wiphy));
 +
-+	/* Use the parent AP's MAC — AP_VLAN shares the BSS */
 +	eth_hw_addr_set(ndev, parent_ifp->mac_addr);
 +
 +	ifp = netdev_priv(ndev);
@@ -513,7 +504,6 @@
 +	err = brcmf_net_vlan_attach(ifp);
 +	if (err) {
 +		brcmf_err("Failed to attach %s device\n", ndev->name);
-+		/* free_netdev triggers priv_destructor which frees vif */
 +		free_netdev(ndev);
 +		return ERR_PTR(err);
 +	}
@@ -534,9 +524,11 @@
 +	struct brcmf_if *ifp = netdev_priv(ndev);
 +	struct brcmf_if *parent_ifp = ifp->parent_ifp;
 +
++	if (!IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN))
++		return -EOPNOTSUPP;
++
 +	brcmf_dbg(INFO, "Removing AP_VLAN %s\n", ndev->name);
 +
-+	/* Remove all STA mappings pointing to this VLAN */
 +	if (parent_ifp)
 +		brcmf_vlan_unmap_all(parent_ifp, ndev);
 +
@@ -545,26 +537,37 @@
 +
 +	return 0;
 +}
-+#endif /* CONFIG_BRCMFMAC_AP_VLAN */
++
++static void brcmf_vlan_teardown_all(struct wiphy *wiphy,
++				    struct brcmf_if *ap_ifp)
++{
++	struct brcmf_cfg80211_info *cfg = wiphy_to_cfg(wiphy);
++	struct brcmf_cfg80211_vif *vlan_vif, *tmp;
++
++	list_for_each_entry_safe(vlan_vif, tmp, &cfg->vif_list, list) {
++		if (vlan_vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN &&
++		    vlan_vif->ifp->parent_ifp == ap_ifp)
++			brcmf_vlan_del_vif(wiphy, &vlan_vif->wdev);
++	}
++	brcmf_vlan_map_destroy(ap_ifp);
++}
 +
  static struct wireless_dev *brcmf_cfg80211_add_iface(struct wiphy *wiphy,
  						     const char *name,
  						     unsigned char name_assign_type,
-@@ -983,6 +1097,13 @@
+@@ -983,6 +1103,11 @@
  	int err;
  
  	brcmf_dbg(TRACE, "enter: %s type %d\n", name, type);
 +
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	/* AP_VLAN is software-only — skip firmware combination check */
-+	if (type == NL80211_IFTYPE_AP_VLAN)
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    type == NL80211_IFTYPE_AP_VLAN)
 +		return brcmf_vlan_add_vif(wiphy, name);
-+#endif
 +
  	err = brcmf_vif_add_validate(wiphy_to_cfg(wiphy), type);
  	if (err) {
  		bphy_err(drvr, "iface validation failed: err=%d\n", err);
-@@ -990,7 +1111,6 @@
+@@ -990,7 +1115,6 @@
  	}
  	switch (type) {
  	case NL80211_IFTYPE_ADHOC:
@@ -572,29 +575,18 @@
  	case NL80211_IFTYPE_WDS:
  	case NL80211_IFTYPE_MESH_POINT:
  		return ERR_PTR(-EOPNOTSUPP);
-@@ -1252,6 +1372,21 @@
+@@ -1251,6 +1375,10 @@
+ 	struct brcmf_pub *drvr = cfg->pub;
  	int ret;
  	int err;
++
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    wdev->iftype == NL80211_IFTYPE_AP)
++		brcmf_vlan_teardown_all(wiphy, ifp);
  
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	/* Tear down all VLAN children before removing the parent AP */
-+	if (wdev->iftype == NL80211_IFTYPE_AP) {
-+		struct brcmf_cfg80211_vif *vlan_vif, *tmp;
-+
-+		list_for_each_entry_safe(vlan_vif, tmp,
-+					 &cfg->vif_list, list) {
-+			if (vlan_vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN &&
-+			    vlan_vif->ifp->parent_ifp == ifp)
-+				brcmf_vlan_del_vif(wiphy, &vlan_vif->wdev);
-+		}
-+		brcmf_vlan_map_destroy(ifp);
-+	}
-+#endif
-+
  	brcmf_cfg80211_arm_vif_event(cfg, ifp->vif);
  
- 	err = brcmf_fil_bsscfg_data_set(ifp, "interface_remove", NULL, 0);
-@@ -1289,7 +1424,7 @@
+@@ -1289,7 +1417,7 @@
  	if (brcmf_cfg80211_vif_event_armed(cfg))
  		return -EBUSY;
  
@@ -603,7 +595,7 @@
  		if (test_bit(BRCMF_SCAN_STATUS_BUSY, &cfg->scan_status) &&
  		    cfg->escan_info.ifp == netdev_priv(ndev))
  			brcmf_notify_escan_complete(cfg, netdev_priv(ndev),
-@@ -1300,10 +1435,15 @@
+@@ -1300,10 +1428,11 @@
  
  	switch (wdev->iftype) {
  	case NL80211_IFTYPE_ADHOC:
@@ -612,73 +604,65 @@
  	case NL80211_IFTYPE_MESH_POINT:
  		return -EOPNOTSUPP;
 +	case NL80211_IFTYPE_AP_VLAN:
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +		return brcmf_vlan_del_vif(wiphy, wdev);
-+#else
-+		return -EOPNOTSUPP;
-+#endif
  	case NL80211_IFTYPE_MONITOR:
  		return brcmf_mon_del_vif(wiphy, wdev);
  	case NL80211_IFTYPE_STATION:
-@@ -2712,6 +2852,12 @@
+@@ -2712,6 +2841,11 @@
  
  	brcmf_dbg(TRACE, "Enter\n");
  	brcmf_dbg(CONN, "key index (%d)\n", key_idx);
 +
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
 +		return 0;
-+#endif
 +
  	if (!check_vif_up(ifp->vif))
  		return -EIO;
  
-@@ -2746,6 +2892,11 @@
+@@ -2745,6 +2879,10 @@
+ 
  	brcmf_dbg(TRACE, "Enter\n");
  	brcmf_dbg(CONN, "key index (%d)\n", key_idx);
- 
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
-+		return 0;
-+#endif
 +
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
++		return 0;
+ 
  	if (!check_vif_up(ifp->vif))
  		return -EIO;
- 
-@@ -2789,6 +2940,13 @@
+@@ -2789,6 +2927,12 @@
  
  	brcmf_dbg(TRACE, "Enter\n");
  	brcmf_dbg(CONN, "key index (%d)\n", key_idx);
 +
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +	/* AP_VLAN: no-op key ops — firmware has one GTK for the AP BSS */
-+	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
 +		return 0;
-+#endif
 +
  	if (!check_vif_up(ifp->vif))
  		return -EIO;
  
-@@ -2959,6 +3117,11 @@
- 	struct brcmf_if *ifp = netdev_priv(ndev);
+@@ -2960,6 +3104,10 @@
  
  	brcmf_dbg(TRACE, "Enter key_idx %d\n", key_idx);
-+
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
-+		return 0;
-+#endif
  
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
++		return 0;
++
  	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_MFP))
  		return 0;
-@@ -3127,6 +3290,24 @@
+ 
+@@ -3127,6 +3275,22 @@
  	u32 i;
  
  	brcmf_dbg(TRACE, "Enter, MAC %pM\n", mac);
 +
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +	/* AP_VLAN: query parent AP, verify STA belongs to this VLAN */
-+	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN) {
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN) {
 +		struct net_device *vlan_ndev;
 +
 +		if (!ifp->parent_ifp)
@@ -688,34 +672,27 @@
 +		rcu_read_unlock();
 +		if (vlan_ndev != ndev)
 +			return -ENOENT;
-+		/* Use parent AP's ifp for firmware query */
 +		ifp = ifp->parent_ifp;
 +	}
-+#endif
 +
  	if (!check_vif_up(ifp->vif))
  		return -EIO;
  
-@@ -3239,9 +3420,54 @@
- 	struct brcmf_if *ifp = netdev_priv(ndev);
- 	struct brcmf_pub *drvr = cfg->pub;
+@@ -3241,7 +3405,48 @@
  	s32 err;
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	struct brcmf_if *query_ifp = ifp;
-+#endif
  
  	brcmf_dbg(TRACE, "Enter, idx %d\n", idx);
- 
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
++
 +	/* AP_VLAN: query parent AP's assoclist, filter by VLAN mapping */
-+	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN) {
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN) {
++		struct brcmf_if *query_ifp = ifp->parent_ifp;
 +		struct net_device *vlan_ndev;
 +		int vlan_idx = 0;
 +		int i, count;
 +
-+		if (!ifp->parent_ifp)
++		if (!query_ifp)
 +			return -ENOENT;
-+		query_ifp = ifp->parent_ifp;
 +
 +		if (idx == 0) {
 +			cfg->assoclist.count = cpu_to_le32(BRCMF_MAX_ASSOCLIST);
@@ -728,7 +705,7 @@
 +				return -EOPNOTSUPP;
 +			}
 +		}
-+
+ 
 +		count = le32_to_cpu(cfg->assoclist.count);
 +		for (i = 0; i < count; i++) {
 +			rcu_read_lock();
@@ -746,49 +723,35 @@
 +		}
 +		return -ENOENT;
 +	}
-+#endif
 +
  	if (idx == 0) {
  		cfg->assoclist.count = cpu_to_le32(BRCMF_MAX_ASSOCLIST);
  		err = brcmf_fil_cmd_data_get(ifp, BRCMF_C_GET_ASSOCLIST,
-@@ -5344,7 +5570,22 @@
- 	struct brcmf_join_params join_params;
+@@ -5345,6 +5550,10 @@
  
  	brcmf_dbg(TRACE, "Enter\n");
-+
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
-+	/* Tear down all VLAN children before stopping the AP */
-+	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
-+		struct brcmf_cfg80211_vif *vlan_vif, *tmp;
  
-+		list_for_each_entry_safe(vlan_vif, tmp,
-+					 &cfg->vif_list, list) {
-+			if (vlan_vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN &&
-+			    vlan_vif->ifp->parent_ifp == ifp)
-+				brcmf_vlan_del_vif(wiphy, &vlan_vif->wdev);
-+		}
-+		brcmf_vlan_map_destroy(ifp);
-+	}
-+#endif
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP)
++		brcmf_vlan_teardown_all(wiphy, ifp);
 +
  	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
  		/* Due to most likely deauths outstanding we sleep */
  		/* first to make sure they get processed by fw. */
-@@ -5464,7 +5705,38 @@
- 	/* Ignore all 00 MAC */
+@@ -5465,6 +5674,35 @@
  	if (is_zero_ether_addr(mac))
  		return 0;
-+
-+#ifdef CONFIG_BRCMFMAC_AP_VLAN
+ 
 +	/*
 +	 * AP_VLAN assignment: hostapd sets params->vlan when it wants to
 +	 * move a STA to a VLAN interface. Update the STA-to-VLAN mapping
 +	 * so RX frames from this STA are delivered to the VLAN netdev.
 +	 */
-+	if (params->vlan && ifp->vif &&
++	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
++	    params->vlan && ifp->vif &&
 +	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
 +		struct net_device *vlan_ndev = params->vlan;
- 
++
 +		if (vlan_ndev->ieee80211_ptr->iftype ==
 +		    NL80211_IFTYPE_AP_VLAN) {
 +			err = brcmf_vlan_map_sta(ifp, mac, vlan_ndev);
@@ -802,18 +765,16 @@
 +				  mac, vlan_ndev->name);
 +		} else if (vlan_ndev->ieee80211_ptr->iftype ==
 +			   NL80211_IFTYPE_AP) {
-+			/* Moving back to main AP — remove VLAN mapping */
 +			brcmf_vlan_unmap_sta(ifp, mac);
 +			brcmf_dbg(INFO, "STA %pM -> AP %s (unvlan)\n",
 +				  mac, ndev->name);
 +		}
 +	}
-+#endif /* CONFIG_BRCMFMAC_AP_VLAN */
 +
  	if (!(params->sta_flags_mask & BIT(NL80211_STA_FLAG_AUTHORIZED)))
  		return 0;
  
-@@ -6490,6 +6762,11 @@
+@@ -6490,6 +6728,11 @@
  	} else if ((event == BRCMF_E_DISASSOC_IND) ||
  		   (event == BRCMF_E_DEAUTH_IND) ||
  		   (event == BRCMF_E_DEAUTH)) {
@@ -825,7 +786,7 @@
  		cfg80211_del_sta(ndev, e->addr, GFP_KERNEL);
  	}
  	return 0;
-@@ -7425,6 +7702,10 @@
+@@ -7425,6 +7668,10 @@
  	wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION) |
  				 BIT(NL80211_IFTYPE_ADHOC) |
  				 BIT(NL80211_IFTYPE_AP);
