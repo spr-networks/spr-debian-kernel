@@ -98,7 +98,7 @@
  void __exit brcmf_core_exit(void);
  
 --- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c	2024-08-08 19:34:29
-+++ brcmfmac/core.c	2026-03-29 14:06:19
++++ brcmfmac/core.c	2026-03-30 11:37:06
 @@ -417,7 +417,37 @@
  	if (!(ifp->ndev->flags & IFF_UP)) {
  		brcmu_pkt_buf_free_skb(skb);
@@ -137,7 +137,7 @@
  
  	ifp->ndev->stats.rx_bytes += skb->len;
  	ifp->ndev->stats.rx_packets++;
-@@ -754,7 +784,248 @@
+@@ -754,7 +784,252 @@
  
  	ndev = ifp->ndev;
  	ndev->netdev_ops = &brcmf_netdev_ops_mon;
@@ -318,7 +318,11 @@
 +		ndev->stats.tx_dropped++;
 +		return NETDEV_TX_OK;
 +	}
- 
++
++	/* Backpressure: parent AP's TX queue is full */
++	if (parent_ifp->netif_stop)
++		return NETDEV_TX_BUSY;
++
 +	if (!drvr->settings->iapp && brcmf_skb_is_iapp(skb)) {
 +		dev_kfree_skb(skb);
 +		ndev->stats.tx_dropped++;
@@ -361,7 +365,7 @@
 +		ndev->stats.tx_packets++;
 +		ndev->stats.tx_bytes += tx_bytes;
 +	}
-+
+ 
 +	return NETDEV_TX_OK;
 +}
 +
@@ -386,7 +390,7 @@
  	err = cfg80211_register_netdevice(ndev);
  	if (err)
  		bphy_err(drvr, "Failed to register %s device\n", ndev->name);
-@@ -762,6 +1033,9 @@
+@@ -762,6 +1037,9 @@
  	return err;
  }
  
@@ -397,7 +401,7 @@
  {
  	struct net_device *ndev;
 --- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c	2024-08-08 19:34:29
-+++ brcmfmac/cfg80211.c	2026-03-30 09:54:52
++++ brcmfmac/cfg80211.c	2026-03-30 11:50:01
 @@ -500,7 +500,10 @@
  		.num_different_channels = 1,
  	};
@@ -432,13 +436,10 @@
  
  	params.iftype_num[new_type]++;
  	return cfg80211_check_combinations(cfg->wiphy, &params);
-@@ -967,9 +975,115 @@
- 	brcmf_net_detach(ndev, true);
+@@ -970,7 +978,113 @@
  
- 	cfg->pub->mon_if = NULL;
-+
-+	return 0;
-+}
+ 	return 0;
+ }
 +
 +#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +/**
@@ -467,7 +468,7 @@
 +			break;
 +		}
 +	}
-+
+ 
 +	if (!parent_ifp) {
 +		brcmf_err("Cannot add AP_VLAN: no active AP interface\n");
 +		return ERR_PTR(-ENOENT);
@@ -534,7 +535,7 @@
 +	struct brcmf_if *parent_ifp = ifp->parent_ifp;
 +
 +	brcmf_dbg(INFO, "Removing AP_VLAN %s\n", ndev->name);
- 
++
 +	/* Remove all STA mappings pointing to this VLAN */
 +	if (parent_ifp)
 +		brcmf_vlan_unmap_all(parent_ifp, ndev);
@@ -542,12 +543,13 @@
 +	ndev->netdev_ops->ndo_stop(ndev);
 +	brcmf_net_detach(ndev, true);
 +
- 	return 0;
- }
++	return 0;
++}
 +#endif /* CONFIG_BRCMFMAC_AP_VLAN */
- 
++
  static struct wireless_dev *brcmf_cfg80211_add_iface(struct wiphy *wiphy,
  						     const char *name,
+ 						     unsigned char name_assign_type,
 @@ -983,6 +1097,13 @@
  	int err;
  
@@ -570,16 +572,15 @@
  	case NL80211_IFTYPE_WDS:
  	case NL80211_IFTYPE_MESH_POINT:
  		return ERR_PTR(-EOPNOTSUPP);
-@@ -1251,7 +1371,22 @@
- 	struct brcmf_pub *drvr = cfg->pub;
+@@ -1252,6 +1372,21 @@
  	int ret;
  	int err;
-+
+ 
 +#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +	/* Tear down all VLAN children before removing the parent AP */
 +	if (wdev->iftype == NL80211_IFTYPE_AP) {
 +		struct brcmf_cfg80211_vif *vlan_vif, *tmp;
- 
++
 +		list_for_each_entry_safe(vlan_vif, tmp,
 +					 &cfg->vif_list, list) {
 +			if (vlan_vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN &&
@@ -609,12 +610,12 @@
 -	case NL80211_IFTYPE_AP_VLAN:
  	case NL80211_IFTYPE_WDS:
  	case NL80211_IFTYPE_MESH_POINT:
-+		return -EOPNOTSUPP;
+ 		return -EOPNOTSUPP;
 +	case NL80211_IFTYPE_AP_VLAN:
 +#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +		return brcmf_vlan_del_vif(wiphy, wdev);
 +#else
- 		return -EOPNOTSUPP;
++		return -EOPNOTSUPP;
 +#endif
  	case NL80211_IFTYPE_MONITOR:
  		return brcmf_mon_del_vif(wiphy, wdev);
@@ -658,32 +659,126 @@
  	if (!check_vif_up(ifp->vif))
  		return -EIO;
  
-@@ -2960,6 +3118,11 @@
+@@ -2959,6 +3117,11 @@
+ 	struct brcmf_if *ifp = netdev_priv(ndev);
  
  	brcmf_dbg(TRACE, "Enter key_idx %d\n", key_idx);
- 
++
 +#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN)
 +		return 0;
 +#endif
-+
+ 
  	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_MFP))
  		return 0;
+@@ -3127,6 +3290,24 @@
+ 	u32 i;
  
-@@ -5402,6 +5565,9 @@
- 	brcmf_configure_arp_nd_offload(ifp, true);
- 	clear_bit(BRCMF_VIF_STATUS_AP_CREATED, &ifp->vif->sme_state);
- 	brcmf_net_setcarrier(ifp, false);
+ 	brcmf_dbg(TRACE, "Enter, MAC %pM\n", mac);
 +
-+	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN))
-+		brcmf_vlan_map_destroy(ifp);
++#ifdef CONFIG_BRCMFMAC_AP_VLAN
++	/* AP_VLAN: query parent AP, verify STA belongs to this VLAN */
++	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN) {
++		struct net_device *vlan_ndev;
++
++		if (!ifp->parent_ifp)
++			return -ENOENT;
++		rcu_read_lock();
++		vlan_ndev = brcmf_vlan_lookup_sta(ifp->parent_ifp, mac);
++		rcu_read_unlock();
++		if (vlan_ndev != ndev)
++			return -ENOENT;
++		/* Use parent AP's ifp for firmware query */
++		ifp = ifp->parent_ifp;
++	}
++#endif
++
+ 	if (!check_vif_up(ifp->vif))
+ 		return -EIO;
  
- 	return err;
- }
-@@ -5465,6 +5631,37 @@
+@@ -3239,9 +3420,54 @@
+ 	struct brcmf_if *ifp = netdev_priv(ndev);
+ 	struct brcmf_pub *drvr = cfg->pub;
+ 	s32 err;
++#ifdef CONFIG_BRCMFMAC_AP_VLAN
++	struct brcmf_if *query_ifp = ifp;
++#endif
+ 
+ 	brcmf_dbg(TRACE, "Enter, idx %d\n", idx);
+ 
++#ifdef CONFIG_BRCMFMAC_AP_VLAN
++	/* AP_VLAN: query parent AP's assoclist, filter by VLAN mapping */
++	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN) {
++		struct net_device *vlan_ndev;
++		int vlan_idx = 0;
++		int i, count;
++
++		if (!ifp->parent_ifp)
++			return -ENOENT;
++		query_ifp = ifp->parent_ifp;
++
++		if (idx == 0) {
++			cfg->assoclist.count = cpu_to_le32(BRCMF_MAX_ASSOCLIST);
++			err = brcmf_fil_cmd_data_get(query_ifp,
++						     BRCMF_C_GET_ASSOCLIST,
++						     &cfg->assoclist,
++						     sizeof(cfg->assoclist));
++			if (err) {
++				cfg->assoclist.count = 0;
++				return -EOPNOTSUPP;
++			}
++		}
++
++		count = le32_to_cpu(cfg->assoclist.count);
++		for (i = 0; i < count; i++) {
++			rcu_read_lock();
++			vlan_ndev = brcmf_vlan_lookup_sta(query_ifp,
++							  cfg->assoclist.mac[i]);
++			rcu_read_unlock();
++			if (vlan_ndev != ndev)
++				continue;
++			if (vlan_idx == idx) {
++				memcpy(mac, cfg->assoclist.mac[i], ETH_ALEN);
++				return brcmf_cfg80211_get_station(wiphy, ndev,
++								  mac, sinfo);
++			}
++			vlan_idx++;
++		}
++		return -ENOENT;
++	}
++#endif
++
+ 	if (idx == 0) {
+ 		cfg->assoclist.count = cpu_to_le32(BRCMF_MAX_ASSOCLIST);
+ 		err = brcmf_fil_cmd_data_get(ifp, BRCMF_C_GET_ASSOCLIST,
+@@ -5344,7 +5570,22 @@
+ 	struct brcmf_join_params join_params;
+ 
+ 	brcmf_dbg(TRACE, "Enter\n");
++
++#ifdef CONFIG_BRCMFMAC_AP_VLAN
++	/* Tear down all VLAN children before stopping the AP */
++	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
++		struct brcmf_cfg80211_vif *vlan_vif, *tmp;
+ 
++		list_for_each_entry_safe(vlan_vif, tmp,
++					 &cfg->vif_list, list) {
++			if (vlan_vif->wdev.iftype == NL80211_IFTYPE_AP_VLAN &&
++			    vlan_vif->ifp->parent_ifp == ifp)
++				brcmf_vlan_del_vif(wiphy, &vlan_vif->wdev);
++		}
++		brcmf_vlan_map_destroy(ifp);
++	}
++#endif
++
+ 	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
+ 		/* Due to most likely deauths outstanding we sleep */
+ 		/* first to make sure they get processed by fw. */
+@@ -5464,7 +5705,38 @@
+ 	/* Ignore all 00 MAC */
  	if (is_zero_ether_addr(mac))
  		return 0;
- 
++
 +#ifdef CONFIG_BRCMFMAC_AP_VLAN
 +	/*
 +	 * AP_VLAN assignment: hostapd sets params->vlan when it wants to
@@ -693,7 +788,7 @@
 +	if (params->vlan && ifp->vif &&
 +	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
 +		struct net_device *vlan_ndev = params->vlan;
-+
+ 
 +		if (vlan_ndev->ieee80211_ptr->iftype ==
 +		    NL80211_IFTYPE_AP_VLAN) {
 +			err = brcmf_vlan_map_sta(ifp, mac, vlan_ndev);
@@ -718,7 +813,7 @@
  	if (!(params->sta_flags_mask & BIT(NL80211_STA_FLAG_AUTHORIZED)))
  		return 0;
  
-@@ -6490,6 +6687,11 @@
+@@ -6490,6 +6762,11 @@
  	} else if ((event == BRCMF_E_DISASSOC_IND) ||
  		   (event == BRCMF_E_DEAUTH_IND) ||
  		   (event == BRCMF_E_DEAUTH)) {
@@ -730,7 +825,7 @@
  		cfg80211_del_sta(ndev, e->addr, GFP_KERNEL);
  	}
  	return 0;
-@@ -7425,6 +7627,10 @@
+@@ -7425,6 +7702,10 @@
  	wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION) |
  				 BIT(NL80211_IFTYPE_ADHOC) |
  				 BIT(NL80211_IFTYPE_AP);
