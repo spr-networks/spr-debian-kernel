@@ -97,8 +97,8 @@
  void __exit brcmf_core_exit(void);
  
 --- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c	2024-08-08 19:34:29
-+++ brcmfmac/core.c	2026-03-30 11:37:06
-@@ -417,7 +417,37 @@
++++ brcmfmac/core.c	2026-03-30 12:38:03
+@@ -417,7 +417,34 @@
  	if (!(ifp->ndev->flags & IFF_UP)) {
  		brcmu_pkt_buf_free_skb(skb);
  		return;
@@ -108,11 +108,8 @@
 +	/*
 +	 * AP_VLAN RX redirect: if this is an AP interface and the source
 +	 * STA is mapped to a VLAN netdev, deliver the frame there instead.
-+	 * Unicast only — multicast/broadcast stays on the AP netdev.
 +	 */
-+	if (ifp->vif && ifp->vif->wdev.iftype == NL80211_IFTYPE_AP &&
-+	    skb->pkt_type != PACKET_MULTICAST &&
-+	    skb->pkt_type != PACKET_BROADCAST) {
++	if (ifp->vif && ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
 +		struct net_device *vlan_ndev;
 +		struct ethhdr *eh = eth_hdr(skb);
 +
@@ -136,14 +133,10 @@
  
  	ifp->ndev->stats.rx_bytes += skb->len;
  	ifp->ndev->stats.rx_packets++;
-@@ -754,7 +784,252 @@
- 
- 	ndev = ifp->ndev;
- 	ndev->netdev_ops = &brcmf_netdev_ops_mon;
-+
-+	err = cfg80211_register_netdevice(ndev);
-+	if (err)
-+		bphy_err(drvr, "Failed to register %s device\n", ndev->name);
+@@ -758,10 +785,258 @@
+ 	err = cfg80211_register_netdevice(ndev);
+ 	if (err)
+ 		bphy_err(drvr, "Failed to register %s device\n", ndev->name);
 +
 +	return err;
 +}
@@ -156,7 +149,7 @@
 +	.key_offset = offsetof(struct brcmf_sta_vlan_entry, mac),
 +	.head_offset = offsetof(struct brcmf_sta_vlan_entry, rhash),
 +};
-+
+ 
 +int brcmf_vlan_map_init(struct brcmf_if *ifp)
 +{
 +	int err;
@@ -164,9 +157,9 @@
 +	err = rhashtable_init(&ifp->sta_vlan_map, &brcmf_sta_vlan_params);
 +	if (!err)
 +		ifp->sta_vlan_map_init = true;
-+	return err;
-+}
-+
+ 	return err;
+ }
+ 
 +static void brcmf_sta_vlan_entry_free(void *ptr, void *arg)
 +{
 +	kfree(ptr);
@@ -364,7 +357,7 @@
 +		ndev->stats.tx_packets++;
 +		ndev->stats.tx_bytes += tx_bytes;
 +	}
- 
++
 +	return NETDEV_TX_OK;
 +}
 +
@@ -386,13 +379,13 @@
 +	ndev->netdev_ops = &brcmf_netdev_ops_vlan;
 +	ndev->needed_headroom += drvr->hdrlen;
 +
- 	err = cfg80211_register_netdevice(ndev);
- 	if (err)
- 		bphy_err(drvr, "Failed to register %s device\n", ndev->name);
-@@ -762,6 +1037,9 @@
- 	return err;
- }
- 
++	err = cfg80211_register_netdevice(ndev);
++	if (err)
++		bphy_err(drvr, "Failed to register %s device\n", ndev->name);
++
++	return err;
++}
++
 +#endif /* CONFIG_BRCMFMAC_AP_VLAN */
 +/* --- End AP_VLAN support --- */
 +
@@ -400,7 +393,7 @@
  {
  	struct net_device *ndev;
 --- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c	2024-08-08 19:34:29
-+++ brcmfmac/cfg80211.c	2026-03-30 12:28:40
++++ brcmfmac/cfg80211.c	2026-03-30 12:41:32
 @@ -500,7 +500,10 @@
  		.num_different_channels = 1,
  	};
@@ -733,7 +726,7 @@
  
 +	if (IS_ENABLED(CONFIG_BRCMFMAC_AP_VLAN) &&
 +	    ifp->vif->wdev.iftype == NL80211_IFTYPE_AP)
-+		brcmf_vlan_teardown_all(wiphy, ifp);
++		brcmf_vlan_map_destroy(ifp);
 +
  	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_AP) {
  		/* Due to most likely deauths outstanding we sleep */
