@@ -41,6 +41,7 @@ WORKDIR /build/linux
 CMD set -ex && \
     # ── Merge defconfig with SPR config fragment ─────────────────── \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${DEFCONFIG} && \
+    make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- hardening.config && \
     ./scripts/kconfig/merge_config.sh -m .config /spr.config && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig && \
     # Verify key configs \
