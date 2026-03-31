@@ -1,5 +1,5 @@
---- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/Kconfig	2024-08-08 19:34:29
-+++ brcmfmac/Kconfig	2026-03-29 07:39:39
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/Kconfig
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/Kconfig
 @@ -48,3 +48,10 @@
  	  IEEE802.11ac embedded FullMAC WLAN driver. Say Y if you want to
  	  use the driver for an PCIE wireless card.
@@ -11,8 +11,8 @@
 +	help
 +	  Enables AP/VLAN interface support.
 +
---- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.h	2024-08-08 19:34:29
-+++ brcmfmac/core.h	2026-03-30 12:18:46
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.h
 @@ -11,6 +11,9 @@
  #define BRCMFMAC_CORE_H
  
@@ -96,8 +96,8 @@
  int __init brcmf_core_init(void);
  void __exit brcmf_core_exit(void);
  
---- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c	2024-08-08 19:34:29
-+++ brcmfmac/core.c	2026-03-30 12:38:03
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
 @@ -417,7 +417,34 @@
  	if (!(ifp->ndev->flags & IFF_UP)) {
  		brcmu_pkt_buf_free_skb(skb);
@@ -392,8 +392,8 @@
  void brcmf_net_setcarrier(struct brcmf_if *ifp, bool on)
  {
  	struct net_device *ndev;
---- /Users/adc/linux/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c	2024-08-08 19:34:29
-+++ brcmfmac/cfg80211.c	2026-03-30 13:19:50
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
 @@ -500,7 +500,10 @@
  		.num_different_channels = 1,
  	};
