@@ -25,6 +25,9 @@ jobs:
       - name: Clone kernel source
         run: git clone --branch rpi-6.18.y --depth=1 https://github.com/raspberrypi/linux.git
 
+      - name: Apply patches
+        run: cd linux && git apply ../patches/*.patch
+
       - name: Build Docker image
         run: docker build -t rpi-kernel-builder .
 
