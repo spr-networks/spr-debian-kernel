@@ -1,16 +1,15 @@
 --- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/Kconfig
 +++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/Kconfig
-@@ -48,3 +48,10 @@
+@@ -48,3 +48,9 @@
  	  IEEE802.11ac embedded FullMAC WLAN driver. Say Y if you want to
  	  use the driver for an PCIE wireless card.
- 
+
 +config BRCMFMAC_AP_VLAN
 +	bool "AP/VLAN support for FullMAC driver"
 +	depends on BRCMFMAC
 +	default n
 +	help
 +	  Enables AP/VLAN interface support.
-+
 --- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.h
 +++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.h
 @@ -11,6 +11,9 @@
