@@ -17,13 +17,16 @@ jobs:
       attestations: write
     steps:
       - name: Clean workspace
-        run: docker run --rm -v ${{ github.workspace }}:/workspace debian:trixie rm -rf /workspace/linux /workspace/output
+        run: docker run --rm -v ${{ github.workspace }}:/workspace debian:trixie rm -rf /workspace/linux /workspace/ath /workspace/output
 
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Clone kernel source
         run: git clone --branch rpi-6.18.y --depth=1 https://github.com/raspberrypi/linux.git
+
+      - name: Clone ath12k source (kvalo/ath main)
+        run: git clone --branch korg-kvalo/main --depth=1 https://git.codelinaro.org/clo/qsdk/kvalo/ath.git
 
       - name: Apply patches
         run: cd linux && git apply ../patches/*.patch
@@ -36,6 +39,7 @@ jobs:
           mkdir -p output
           docker run --rm \
             -v ${{ github.workspace }}/linux:/build/linux \
+            -v ${{ github.workspace }}/ath:/build/ath \
             -v ${{ github.workspace }}/output:/output \
             rpi-kernel-builder
 

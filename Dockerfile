@@ -45,7 +45,6 @@ CMD set -ex && \
     ./scripts/kconfig/merge_config.sh -m .config /spr.config && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig && \
     # Verify key configs \
-    grep 'CONFIG_ATH12K=m' .config && \
     grep 'CONFIG_MT7915E=m' .config && \
     grep 'CONFIG_R8169=m' .config && \
     grep 'CONFIG_BRCMFMAC_AP_VLAN=y' .config && \
@@ -57,6 +56,26 @@ CMD set -ex && \
         KDEB_PKGVERSION=1~rpi~trixie \
         "DPKG_FLAGS=-d -j$(nproc)" \
         bindeb-pkg && \
+    # ── Build ath12k out-of-tree from kvalo/ath main ─────────────── \
+    KVER=$(cat include/config/kernel.release) && \
+    ATH12K_SRC=/build/ath/drivers/net/wireless/ath/ath12k && \
+    make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+        M=$ATH12K_SRC \
+        CONFIG_ATH12K=m \
+        CONFIG_ATH12K_DEBUGFS=y \
+        CONFIG_ATH12K_TRACING=y \
+        modules && \
+    # ── Package ath12k.ko as a separate .deb ─────────────────────── \
+    ATH12K_STAGE=/tmp/ath12k-module && \
+    ATH12K_VERSION="1.0-kvalo-main~rpi~trixie" && \
+    rm -rf "$ATH12K_STAGE" && \
+    mkdir -p "$ATH12K_STAGE/lib/modules/$KVER/updates" "$ATH12K_STAGE/DEBIAN" && \
+    cp $ATH12K_SRC/ath12k.ko "$ATH12K_STAGE/lib/modules/$KVER/updates/" && \
+    aarch64-linux-gnu-strip --strip-debug "$ATH12K_STAGE/lib/modules/$KVER/updates/ath12k.ko" && \
+    printf 'Package: ath12k-module-%s\nVersion: %s\nSection: kernel\nPriority: optional\nArchitecture: arm64\nMaintainer: SPR <build@supernetworks.org>\nDescription: Out-of-tree ath12k driver from kvalo/ath (main)\n Built from git.codelinaro.org/clo/qsdk/kvalo/ath branch korg-kvalo/main.\n' "$KVER" "$ATH12K_VERSION" > "$ATH12K_STAGE/DEBIAN/control" && \
+    printf '#!/bin/sh\nset -e\ndepmod -a %s\n' "$KVER" > "$ATH12K_STAGE/DEBIAN/postinst" && \
+    chmod 755 "$ATH12K_STAGE/DEBIAN/postinst" && \
+    dpkg-deb --build "$ATH12K_STAGE" /build/ath12k-module-${KVER}_${ATH12K_VERSION}_arm64.deb && \
     # ── Collect artifacts ────────────────────────────────────────── \
     mkdir -p /output && \
     mv /build/*.deb /output/ && \
