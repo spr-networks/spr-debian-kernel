@@ -23,8 +23,6 @@ git tag v6.18.18-1
 git push origin v6.18.18-1
 ```
 
-The workflow builds the kernel on a self-hosted runner and publishes the `.deb` packages as a GitHub release. A `latest` release is also maintained for automated consumption:
-
 ```
 https://github.com/<org>/spr-debian-kernel/releases/download/latest/
 ```
