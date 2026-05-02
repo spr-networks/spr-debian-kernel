@@ -45,8 +45,10 @@ CMD set -ex && \
     ./scripts/kconfig/merge_config.sh -m .config /spr.config && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig && \
     # Verify key configs \
-    grep 'CONFIG_ATH12K=m' .config && \
+    grep 'CONFIG_MT7615E=m' .config && \
+    grep 'CONFIG_MT7921E=m' .config && \
     grep 'CONFIG_MT7915E=m' .config && \
+    grep 'CONFIG_MT7996E=m' .config && \
     grep 'CONFIG_R8169=m' .config && \
     grep 'CONFIG_BRCMFMAC_AP_VLAN=y' .config && \
     grep 'CONFIG_KVM=y' .config && \
