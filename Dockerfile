@@ -44,9 +44,20 @@ CMD set -ex && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- hardening.config && \
     ./scripts/kconfig/merge_config.sh -m .config /spr.config && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig && \
+    # Fail when an upstream Kconfig change makes any fragment entry ineffective \
+    while IFS= read -r requested; do \
+        case "${requested}" in \
+            CONFIG_*=*|\#\ CONFIG_*\ is\ not\ set) \
+                grep -Fqx "${requested}" .config || { \
+                    echo "Config mismatch: ${requested}" >&2; \
+                    exit 1; \
+                } ;; \
+        esac; \
+    done < /spr.config && \
     # Verify key configs \
     grep 'CONFIG_MT7615E=m' .config && \
     grep 'CONFIG_MT7921E=m' .config && \
+    grep 'CONFIG_MT7921S=m' .config && \
     grep 'CONFIG_MT7915E=m' .config && \
     grep 'CONFIG_MT7996E=m' .config && \
     grep 'CONFIG_R8169=m' .config && \

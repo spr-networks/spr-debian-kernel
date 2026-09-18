@@ -4,32 +4,43 @@ set -e
 KERNEL_BRANCH="${KERNEL_BRANCH:-rpi-6.18.y}"
 KERNEL_REPO="https://github.com/raspberrypi/linux.git"
 IMAGE_NAME="rpi-kernel-builder"
+SRC_VOLUME="${SRC_VOLUME:-kernel-src}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLATFORM="${PLATFORM:-linux/$(docker version --format '{{.Server.Arch}}')}"
+
+docker volume create "${SRC_VOLUME}" >/dev/null
+
+# Build the Docker image
+echo "=== Building Docker image (${PLATFORM}) ==="
+docker build --platform "${PLATFORM}" -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
 
 # Clone kernel source if not present
-if [ ! -d "${SCRIPT_DIR}/linux" ]; then
-    echo "=== Cloning kernel source (${KERNEL_BRANCH}) ==="
-    git clone --branch "${KERNEL_BRANCH}" --depth=1 "${KERNEL_REPO}" "${SCRIPT_DIR}/linux"
+echo "=== Preparing kernel source (${KERNEL_BRANCH}) ==="
+docker run --rm --platform "${PLATFORM}" \
+    -v "${SRC_VOLUME}:/build/linux" \
+    -v "${SCRIPT_DIR}/patches:/patches:ro" \
+    -w /build/linux \
+    --entrypoint bash "${IMAGE_NAME}" -c '
+set -e
+if [ ! -d .git ]; then
+    git clone --branch "'"${KERNEL_BRANCH}"'" --depth=1 "'"${KERNEL_REPO}"'" .
+else
+    git fetch --depth=1 origin "'"${KERNEL_BRANCH}"'"
 fi
-
+git reset --hard FETCH_HEAD 2>/dev/null || git reset --hard origin/"'"${KERNEL_BRANCH}"'"
+echo "  Kernel version: $(make kernelversion)"
 # Apply patches
-if [ -d "${SCRIPT_DIR}/patches" ]; then
-    echo "=== Applying patches ==="
-    for p in "${SCRIPT_DIR}/patches/"*.patch; do
-        echo "  Applying $(basename "$p")"
-        git -C "${SCRIPT_DIR}/linux" apply "$p"
-    done
-fi
-
-# Build the Docker image (x86_64 for cross-compilation)
-echo "=== Building Docker image ==="
-docker build --platform linux/amd64 -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+for p in /patches/*.patch; do
+    echo "  Applying $(basename "$p")"
+    git apply "$p"
+done
+'
 
 # Run the kernel build
 echo "=== Starting kernel build ==="
 mkdir -p "${SCRIPT_DIR}/output"
-docker run --rm --platform linux/amd64 \
-    -v "${SCRIPT_DIR}/linux:/build/linux" \
+docker run --rm --platform "${PLATFORM}" \
+    -v "${SRC_VOLUME}:/build/linux" \
     -v "${SCRIPT_DIR}/output:/output" \
     "${IMAGE_NAME}"
 

@@ -6,7 +6,7 @@ Cross-compiles the full kernel with the following enabled on top of `bcm2712_def
 - ath12k (Qualcomm WiFi 7 / WiFi 6E)
 - r8169 (RTL8125B 2.5GbE)
 - KVM + VFIO (PCIe passthrough)
-- Virtio (net, blk, scsi, fs, gpu, vsock, 9p)
+- Virtio (net, blk, scsi, fs, vsock, 9p)
 
 ## Build locally
 
@@ -14,13 +14,18 @@ Cross-compiles the full kernel with the following enabled on top of `bcm2712_def
 ./build.sh
 ```
 
+Source is cloned into a Docker volume, not the working tree — 12 netfilter
+sources differ only in case (`xt_DSCP.c` vs `xt_dscp.c`) and a case-insensitive
+host filesystem like macOS APFS clobbers them. Builds for the host arch by
+default; override with `PLATFORM=linux/amd64 ./build.sh`.
+
 ## CI build
 
 Push a tag to trigger the GitHub Actions workflow:
 
 ```bash
-git tag v6.18.18-1
-git push origin v6.18.18-1
+git tag v6.18.52-1
+git push origin v6.18.52-1
 ```
 
 ```
