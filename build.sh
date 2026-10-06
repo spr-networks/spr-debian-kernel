@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-KERNEL_REF="${KERNEL_REF:-8946ad8626ecacee8a8a9cffa433a23f0b118dcd}"
-EXPECTED_KERNEL_VERSION="${EXPECTED_KERNEL_VERSION:-6.18.54}"
+KERNEL_REF="${KERNEL_REF:-af73e0836bf0b6c0218a18131b9a975c319d8e2a}"
+EXPECTED_KERNEL_VERSION="${EXPECTED_KERNEL_VERSION:-6.18.55}"
 KERNEL_REPO="https://github.com/raspberrypi/linux.git"
 IMAGE_NAME="rpi-kernel-builder"
 SRC_VOLUME="${SRC_VOLUME:-kernel-src}"
