@@ -22,33 +22,67 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build kernel
+      - name: Build 16 KB kernel for Pi 5
         env:
-          SRC_VOLUME: kernel-src-${{ github.run_id }}
+          SRC_VOLUME: kernel-src-${{ github.run_id }}-16k
+          DEFCONFIG: bcm2712_defconfig
         run: ./build.sh
 
-      - name: Remove kernel source volume
-        if: always()
-        run: docker volume rm kernel-src-${{ github.run_id }} || true
+      - name: Build 4 KB kernel for Pi 4
+        env:
+          SRC_VOLUME: kernel-src-${{ github.run_id }}-4k
+          DEFCONFIG: bcm2711_defconfig
+        run: ./build.sh
 
-      - name: Upload artifacts
-        id: upload
+      - name: Remove kernel source volumes
+        if: always()
+        run: |
+          docker volume rm kernel-src-${{ github.run_id }}-16k || true
+          docker volume rm kernel-src-${{ github.run_id }}-4k || true
+
+      - name: Upload 16 KB artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-debs
-          path: output/*.deb
+          name: kernel-debs-16k
+          path: output/16k/*.deb
+          if-no-files-found: error
+
+      - name: Upload 4 KB artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-debs-4k
+          path: output/4k/*.deb
+          if-no-files-found: error
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: output/*.deb
+          subject-path: output/*/*.deb
 
-      - name: Release
+      - name: Release 16 KB kernel
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: output/*.deb
+          files: output/16k/*.deb
           generate_release_notes: true
+          make_latest: true
+
+      - name: Release 4 KB Pi 4 kernel
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pi4_tag="pi4-${GITHUB_REF_NAME}"
+          if gh release view "$pi4_tag" >/dev/null 2>&1; then
+            gh release upload "$pi4_tag" output/4k/*.deb --clobber
+          else
+            gh release create "$pi4_tag" output/4k/*.deb \
+              --target "$GITHUB_SHA" \
+              --title "Pi 4 (4 KB) kernel from ${GITHUB_REF_NAME}" \
+              --notes "4 KB kernel packages built from ${GITHUB_REF_NAME}." \
+              --latest=false \
+              --prerelease
+          fi
 
       - name: Update latest release
         if: startsWith(github.ref, 'refs/tags/')
@@ -58,7 +92,8 @@ jobs:
           gh release delete latest --yes 2>/dev/null || true
           git tag -d latest 2>/dev/null || true
           git push origin :refs/tags/latest 2>/dev/null || true
-          gh release create latest output/*.deb \
-            --title "Latest Kernel Build" \
-            --notes "Latest kernel debs from ${GITHUB_REF_NAME}" \
+          gh release create latest output/16k/*.deb \
+            --title "Latest 16 KB Kernel Build" \
+            --notes "Latest 16 KB kernel debs from ${GITHUB_REF_NAME}" \
+            --latest=false \
             --prerelease

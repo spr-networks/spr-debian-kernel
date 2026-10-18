@@ -44,6 +44,12 @@ CMD set -ex && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- hardening.config && \
     ./scripts/kconfig/merge_config.sh -m .config /spr.config && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig && \
+    # Check the page size before producing installable packages. \
+    case "${DEFCONFIG}" in \
+        bcm2711_defconfig) grep -Fqx 'CONFIG_ARM64_4K_PAGES=y' .config ;; \
+        bcm2712_defconfig) grep -Fqx 'CONFIG_ARM64_16K_PAGES=y' .config ;; \
+        *) echo "Unsupported DEFCONFIG: ${DEFCONFIG}" >&2; exit 1 ;; \
+    esac && \
     # Fail when an upstream Kconfig change makes any fragment entry ineffective \
     while IFS= read -r requested; do \
         case "${requested}" in \

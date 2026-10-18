@@ -5,14 +5,21 @@ KERNEL_REF="${KERNEL_REF:-af73e0836bf0b6c0218a18131b9a975c319d8e2a}"
 EXPECTED_KERNEL_VERSION="${EXPECTED_KERNEL_VERSION:-6.18.55}"
 KERNEL_REPO="https://github.com/raspberrypi/linux.git"
 IMAGE_NAME="rpi-kernel-builder"
-SRC_VOLUME="${SRC_VOLUME:-kernel-src}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLATFORM="${PLATFORM:-linux/$(docker version --format '{{.Server.Arch}}')}"
+DEFCONFIG="${DEFCONFIG:-bcm2712_defconfig}"
+case "$DEFCONFIG" in
+    bcm2711_defconfig) PAGE_SIZE=4k ;;
+    bcm2712_defconfig) PAGE_SIZE=16k ;;
+    *) echo "Unsupported DEFCONFIG: $DEFCONFIG" >&2; exit 1 ;;
+esac
+SRC_VOLUME="${SRC_VOLUME:-kernel-src-${PAGE_SIZE}}"
+OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/output/${PAGE_SIZE}}"
 
 docker volume create "${SRC_VOLUME}" >/dev/null
 
 # Build the Docker image
-echo "=== Building Docker image (${PLATFORM}) ==="
+echo "=== Building Docker image (${PLATFORM}, ${DEFCONFIG}) ==="
 docker build --platform "${PLATFORM}" -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
 
 # Clone kernel source if not present
@@ -44,11 +51,12 @@ done
 
 # Run the kernel build
 echo "=== Starting kernel build ==="
-mkdir -p "${SCRIPT_DIR}/output"
+mkdir -p "${OUTPUT_DIR}"
 docker run --rm --platform "${PLATFORM}" \
     -v "${SRC_VOLUME}:/build/linux" \
-    -v "${SCRIPT_DIR}/output:/output" \
+    -v "${OUTPUT_DIR}:/output" \
+    -e DEFCONFIG="${DEFCONFIG}" \
     "${IMAGE_NAME}"
 
-echo "=== Done. Packages in ${SCRIPT_DIR}/output/ ==="
-ls -lh "${SCRIPT_DIR}/output/"
+echo "=== Done. Packages in ${OUTPUT_DIR}/ ==="
+ls -lh "${OUTPUT_DIR}/"
