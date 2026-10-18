@@ -2,8 +2,7 @@
 
 Raspberry Pi kernel builder for Raspbian Trixie (rpi-6.18.y, 6.18.55).
 
-Cross-compiles the full kernel with the following enabled on top of the
-Raspberry Pi defconfig:
+Cross-compiles the full kernel with the following enabled on top of `bcm2712_defconfig`:
 - ath12k (Qualcomm WiFi 7 / WiFi 6E)
 - r8169 (RTL8125B 2.5GbE)
 - KVM + VFIO (PCIe passthrough)
@@ -12,12 +11,12 @@ Raspberry Pi defconfig:
 ## Build locally
 
 ```bash
-./build.sh                              # Pi 5, 16 KB pages (output/16k)
-DEFCONFIG=bcm2711_defconfig ./build.sh  # Pi 4, 4 KB pages (output/4k)
+./build.sh
+DEFCONFIG=bcm2711_defconfig SRC_VOLUME=kernel-src-pi4 \
+  OUTPUT_DIR="$PWD/output/pi4" ./build.sh  # Pi 4, 4 KB pages
 ```
 
-Each page-size build uses a separate Docker volume. Source is cloned into a
-volume, not the working tree — 12 netfilter
+Source is cloned into a Docker volume, not the working tree — 12 netfilter
 sources differ only in case (`xt_DSCP.c` vs `xt_dscp.c`) and a case-insensitive
 host filesystem like macOS APFS clobbers them. Builds for the host arch by
 default; override with `PLATFORM=linux/amd64 ./build.sh`. The source is pinned
@@ -26,7 +25,7 @@ release tag always builds the same kernel version.
 
 ## CI build
 
-Push a tag to build both page sizes:
+Push a tag to trigger the GitHub Actions workflow:
 
 ```bash
 git tag v6.18.55-2
@@ -34,29 +33,22 @@ git push origin v6.18.55-2
 ```
 
 ```
-https://github.com/spr-networks/spr-debian-kernel/releases/download/latest/
-https://github.com/spr-networks/spr-debian-kernel/releases/tag/pi4-v6.18.55-2
+https://github.com/<org>/spr-debian-kernel/releases/download/latest/
 ```
 
-The versioned release and the `latest` alias contain only the Pi 5 16 KB
-packages. The separate `pi4-<version-tag>` prerelease contains the Pi 4 4 KB
-packages. This keeps existing consumers of the latest release on 16 KB.
+The default 16 KB packages remain on the versioned and `latest` releases.
+The 4 KB Pi 4 packages are published separately as a `pi4-<version-tag>`
+prerelease and stored in `output/pi4/` for local builds.
 
 ## Output
 
-- `output/16k/linux-image-*.deb` — Pi 5 kernel + modules
-- `output/4k/linux-image-*.deb` — Pi 4 kernel + modules
-- Each output directory also has matching `linux-headers-*.deb` and
-  `linux-libc-dev_*.deb` packages.
+- `linux-image-*.deb` — kernel + all modules
+- `linux-headers-*.deb` — headers for out-of-tree module builds
+- `linux-libc-dev-*.deb` — kernel headers for userspace
 
-## Install on Pi
+## Install on Pi 5
 
 ```bash
-sudo dpkg -i output/4k/linux-image-*.deb output/4k/linux-headers-*.deb
-# On Pi 5, use output/16k instead.
+sudo dpkg -i linux-image-*.deb linux-headers-*.deb
 sudo reboot
 ```
-
-The Pi 4 needs `kernel8.img` from the 4 KB package; Pi 5 uses
-`kernel_2712.img` from the 16 KB package. An image supporting both boards must
-install both kernels and place each image under the correct firmware filename.
