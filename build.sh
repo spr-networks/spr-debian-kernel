@@ -1,13 +1,15 @@
 #!/bin/bash
 set -e
 
-KERNEL_REF="${KERNEL_REF:-af73e0836bf0b6c0218a18131b9a975c319d8e2a}"
-EXPECTED_KERNEL_VERSION="${EXPECTED_KERNEL_VERSION:-6.18.55}"
+KERNEL_REF="${KERNEL_REF:-234188315037848e5b07d65b85d38edc64095caa}"
+EXPECTED_KERNEL_VERSION="${EXPECTED_KERNEL_VERSION:-6.18.57}"
 KERNEL_REPO="https://github.com/raspberrypi/linux.git"
 IMAGE_NAME="rpi-kernel-builder"
 SRC_VOLUME="${SRC_VOLUME:-kernel-src}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLATFORM="${PLATFORM:-linux/$(docker version --format '{{.Server.Arch}}')}"
+DEFCONFIG="${DEFCONFIG:-bcm2712_defconfig}"
+OUTPUT_DIR="${OUTPUT_DIR:-${SCRIPT_DIR}/output}"
 
 docker volume create "${SRC_VOLUME}" >/dev/null
 
@@ -44,11 +46,12 @@ done
 
 # Run the kernel build
 echo "=== Starting kernel build ==="
-mkdir -p "${SCRIPT_DIR}/output"
+mkdir -p "${OUTPUT_DIR}"
 docker run --rm --platform "${PLATFORM}" \
     -v "${SRC_VOLUME}:/build/linux" \
-    -v "${SCRIPT_DIR}/output:/output" \
+    -v "${OUTPUT_DIR}:/output" \
+    -e DEFCONFIG="${DEFCONFIG}" \
     "${IMAGE_NAME}"
 
-echo "=== Done. Packages in ${SCRIPT_DIR}/output/ ==="
-ls -lh "${SCRIPT_DIR}/output/"
+echo "=== Done. Packages in ${OUTPUT_DIR}/ ==="
+ls -lh "${OUTPUT_DIR}/"

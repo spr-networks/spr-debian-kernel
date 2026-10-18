@@ -27,9 +27,16 @@ jobs:
           SRC_VOLUME: kernel-src-${{ github.run_id }}
         run: ./build.sh
 
-      - name: Remove kernel source volume
+      - name: Build Pi 4 kernel
+        env:
+          SRC_VOLUME: kernel-src-pi4-${{ github.run_id }}
+          DEFCONFIG: bcm2711_defconfig
+          OUTPUT_DIR: ${{ github.workspace }}/output/pi4
+        run: ./build.sh
+
+      - name: Remove kernel source volumes
         if: always()
-        run: docker volume rm kernel-src-${{ github.run_id }} || true
+        run: docker volume rm kernel-src-${{ github.run_id }} kernel-src-pi4-${{ github.run_id }} || true
 
       - name: Upload artifacts
         id: upload
@@ -38,10 +45,19 @@ jobs:
           name: kernel-debs
           path: output/*.deb
 
+      - name: Upload Pi 4 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-debs-pi4
+          path: output/pi4/*.deb
+          if-no-files-found: error
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: output/*.deb
+          subject-path: |
+            output/*.deb
+            output/pi4/*.deb
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -49,6 +65,16 @@ jobs:
         with:
           files: output/*.deb
           generate_release_notes: true
+
+      - name: Release Pi 4 kernel
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pi4-${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          files: output/pi4/*.deb
+          prerelease: true
+          make_latest: false
 
       - name: Update latest release
         if: startsWith(github.ref, 'refs/tags/')
