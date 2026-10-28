@@ -1,6 +1,6 @@
 # spr-debian-kernel
 
-Raspberry Pi kernel builder for Raspbian Trixie (rpi-6.18.y, 6.18.57).
+Raspberry Pi kernel builder for Raspbian Trixie (rpi-6.18.y, 6.18.59).
 
 Cross-compiles the full kernel with the following enabled on top of `bcm2712_defconfig`:
 - ath12k (Qualcomm WiFi 7 / WiFi 6E)
@@ -20,7 +20,7 @@ Source is cloned into a Docker volume, not the working tree — 12 netfilter
 sources differ only in case (`xt_DSCP.c` vs `xt_dscp.c`) and a case-insensitive
 host filesystem like macOS APFS clobbers them. Builds for the host arch by
 default; override with `PLATFORM=linux/amd64 ./build.sh`. The source is pinned
-to Raspberry Pi commit `234188315037848e5b07d65b85d38edc64095caa` so a
+to Raspberry Pi commit `b3495ea401d709af0701a85babcba5e3d788a602` so a
 release tag always builds the same kernel version.
 
 ## CI build
@@ -28,8 +28,8 @@ release tag always builds the same kernel version.
 Push a tag to trigger the GitHub Actions workflow:
 
 ```bash
-git tag v6.18.57-1
-git push origin v6.18.57-1
+git tag v6.18.59-1
+git push origin v6.18.59-1
 ```
 
 ```
