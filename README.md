@@ -5,6 +5,7 @@ Raspberry Pi kernel builder for Raspbian Trixie (rpi-6.18.y, 6.18.59).
 Cross-compiles the full kernel with the following enabled on top of `bcm2712_defconfig`:
 - ath12k (Qualcomm WiFi 7 / WiFi 6E)
 - r8169 (RTL8125B 2.5GbE)
+- MACsec (`CONFIG_MACSEC=m`)
 - KVM + VFIO (PCIe passthrough)
 - Virtio (net, blk, scsi, fs, vsock, 9p)
 
@@ -28,8 +29,8 @@ release tag always builds the same kernel version.
 Push a tag to trigger the GitHub Actions workflow:
 
 ```bash
-git tag v6.18.59-1
-git push origin v6.18.59-1
+git tag v6.18.59-2
+git push origin v6.18.59-2
 ```
 
 ```

@@ -67,7 +67,7 @@ CMD set -ex && \
     grep 'CONFIG_VIRTIO=y' .config && \
     # ── Build full kernel as .deb packages ───────────────────────── \
     make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-        KDEB_PKGVERSION=1~rpi~trixie \
+        KDEB_PKGVERSION=2~rpi~trixie \
         "DPKG_FLAGS=-d -j$(nproc)" \
         bindeb-pkg && \
     # ── Collect artifacts ────────────────────────────────────────── \
