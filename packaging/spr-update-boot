@@ -1,0 +1,101 @@
+#!/bin/bash
+# Synchronize an SPR kernel with the files loaded by Raspberry Pi firmware.
+# The optional root directory supports offline image assembly and tests.
+set -euo pipefail
+
+kver=${1:?usage: spr-update-boot <kernel-version> [root-directory]}
+root=${2:-/}
+root=${root%/}
+boot="$root/boot/firmware"
+dtbs="$root/usr/lib/linux-image-$kver"
+
+fail() { echo "spr-kernel: $*" >&2; exit 1; }
+
+case "$kver" in
+    *-v8-16k+)
+        suffix=-v8-16k+
+        image=kernel_2712.img
+        initramfs=initramfs_2712
+        dtb_pattern='bcm2712*.dtb'
+        pages=CONFIG_ARM64_16K_PAGES=y
+        ;;
+    *-v8+)
+        suffix=-v8+
+        image=kernel8.img
+        initramfs=initramfs8
+        dtb_pattern='bcm2711*.dtb'
+        pages=CONFIG_ARM64_4K_PAGES=y
+        ;;
+    *) fail "unsupported SPR kernel version: $kver" ;;
+esac
+[[ "$kver" =~ ^[0-9]+\.[0-9]+\.[0-9]+-v8(-16k)?\+$ ]] || fail "invalid kernel version: $kver"
+
+# Regenerating an older initramfs (including update-initramfs -k all) must
+# not silently downgrade the boot kernel. Treat the two flavours separately.
+shopt -s nullglob
+for installed in "$root/boot/"vmlinuz-*"$suffix"; do
+    installed=${installed##*/vmlinuz-}
+    if dpkg --compare-versions "$installed" gt "$kver"; then
+        echo "spr-kernel: keeping newer $installed instead of $kver"
+        exit 0
+    fi
+done
+
+# On a running Pi, writing to an unmounted /boot/firmware would leave the
+# actual boot partition unchanged. Permit offline roots/chroots and image
+# builder VMs, as raspi-firmware's own hooks do.
+if [ -z "$root" ] && ! mountpoint -q "$boot" && ! ischroot &&
+   ! systemd-detect-virt -q && [ "$(stat -f -c %T "$boot" 2>/dev/null || true)" != nfs ]; then
+    fail "$boot is not mounted"
+fi
+
+# Validate all inputs before changing any firmware files.
+test -s "$root/boot/vmlinuz-$kver" || fail "missing kernel image for $kver"
+test -s "$root/boot/initrd.img-$kver" || fail "missing initramfs for $kver"
+test -d "$root/lib/modules/$kver" || fail "missing modules for $kver"
+grep -qx "$pages" "$root/boot/config-$kver" || fail "wrong page size for $kver"
+# Intentional glob expansion for the selected board family.
+# shellcheck disable=SC2206
+board_dtbs=("$dtbs/broadcom/"$dtb_pattern)
+overlays=("$dtbs/overlays/"*.dtbo)
+test "${#board_dtbs[@]}" -gt 0 || fail "missing device trees for $kver"
+test "${#overlays[@]}" -gt 0 || fail "missing overlays for $kver"
+
+# The firmware overlay directory is shared by both flavours. Use the newest
+# upstream version, preferring Pi 5 when both packages have the same version.
+copy_overlays=true
+for installed in "$root/boot/"vmlinuz-*-v8+ "$root/boot/"vmlinuz-*-v8-16k+; do
+    installed=${installed##*/vmlinuz-}
+    if dpkg --compare-versions "${installed%%-v8*}" gt "${kver%%-v8*}" ||
+       { [ "$suffix" = -v8+ ] && [ "$installed" = "${kver%-v8+}-v8-16k+" ]; }; then
+        copy_overlays=false
+    fi
+done
+
+mkdir -p "$boot/overlays"
+# Stage on the firmware filesystem, so failed copies do not truncate boot
+# files. Plain cp/mv also works on FAT, without chmod/chown failures.
+staging=$(mktemp -d "$boot/.spr-kernel.XXXXXX")
+trap 'rm -rf "$staging"' EXIT
+cp "$root/boot/vmlinuz-$kver" "$staging/$image"
+cp "$root/boot/initrd.img-$kver" "$staging/$initramfs"
+cp "${board_dtbs[@]}" "$staging/"
+if "$copy_overlays"; then
+    mkdir "$staging/overlays"
+    cp "${overlays[@]}" "$staging/overlays/"
+    for metadata in overlay_map.dtb README; do
+        if [ -f "$dtbs/overlays/$metadata" ]; then
+            cp "$dtbs/overlays/$metadata" "$staging/overlays/"
+        fi
+    done
+    for file in "$staging/overlays/"*; do
+        mv -f "$file" "$boot/overlays/"
+    done
+fi
+for file in "$staging/"*.dtb; do
+    mv -f "$file" "$boot/"
+done
+mv -f "$staging/$initramfs" "$boot/$initramfs"
+mv -f "$staging/$image" "$boot/$image"
+sync -f "$boot"
+echo "spr-kernel: installed $kver as $image with $initramfs and matching device trees"

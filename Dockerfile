@@ -35,6 +35,11 @@ ARG DEFCONFIG=bcm2712_defconfig
 ENV DEFCONFIG=${DEFCONFIG}
 
 COPY spr.config /spr.config
+COPY packaging /packaging
+COPY tests /tests
+
+# Exercise boot-file synchronization and the packaged hooks before compiling.
+RUN python3 -m unittest discover -s /tests -v
 
 WORKDIR /build/linux
 
@@ -67,9 +72,11 @@ CMD set -ex && \
     grep 'CONFIG_VIRTIO=y' .config && \
     # ── Build full kernel as .deb packages ───────────────────────── \
     make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-        KDEB_PKGVERSION=1~rpi~trixie \
+        KDEB_PKGVERSION=3~rpi~trixie \
         "DPKG_FLAGS=-d -j$(nproc)" \
         bindeb-pkg && \
+    # ── Install SPR firmware-partition upgrade hooks ─────────────── \
+    bash /packaging/add-boot-hooks.sh /build/linux-image-*.deb && \
     # ── Collect artifacts ────────────────────────────────────────── \
     mkdir -p /output && \
     mv /build/*.deb /output/ && \

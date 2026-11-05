@@ -1,0 +1,12 @@
+--- a/drivers/net/wireless/mediatek/mt76/mt7996/mac.c
++++ b/drivers/net/wireless/mediatek/mt76/mt7996/mac.c
+@@ -1551,6 +1551,9 @@
+ 
+ 	txrate = FIELD_GET(MT_TXS0_TX_RATE, txs);
+ 
++	if (le32_to_cpu(txs_data[3]) & MT_TXS3_FIXED_RATE)
++		goto out;
++
+ 	rate.mcs = FIELD_GET(MT_TX_RATE_IDX, txrate);
+ 	rate.nss = FIELD_GET(MT_TX_RATE_NSS, txrate) + 1;
+ 	stbc = le32_get_bits(txs_data[3], MT_TXS3_RATE_STBC);

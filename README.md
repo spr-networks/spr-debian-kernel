@@ -9,6 +9,11 @@ Cross-compiles the full kernel with the following enabled on top of `bcm2712_def
 - KVM + VFIO (PCIe passthrough)
 - Virtio (net, blk, scsi, fs, vsock, 9p)
 
+Revision `v6.18.60-3` also enables mac80211/cfg80211 debugfs and patches
+mt7996 TX status handling so fixed-rate frames do not overwrite the cached
+station rate used for airtime estimates. It includes the boot-update hooks
+described below.
+
 ## Build locally
 
 ```bash
@@ -29,8 +34,8 @@ release tag always builds the same kernel version.
 Push a tag to trigger the GitHub Actions workflow:
 
 ```bash
-git tag v6.18.60-1
-git push origin v6.18.60-1
+git tag v6.18.60-3
+git push origin v6.18.60-3
 ```
 
 ```
@@ -50,6 +55,48 @@ prerelease and stored in `output/pi4/` for local builds.
 ## Install on Pi 5
 
 ```bash
-sudo dpkg -i linux-image-*.deb linux-headers-*.deb
+sudo apt install ./linux-image-*.deb ./linux-headers-*.deb
 sudo reboot
+```
+
+Image packages include SPR kernel-postinst and initramfs-post-update hooks.
+On installation and `update-initramfs` regeneration they copy the kernel,
+matching initramfs, board device trees, and overlays into `/boot/firmware`:
+
+| Package flavour | Firmware kernel | Firmware initramfs |
+| --- | --- | --- |
+| Pi 4 (`-v8+`, 4 KB) | `kernel8.img` | `initramfs8` |
+| Pi 5 / CM5 (`-v8-16k+`, 16 KB) | `kernel_2712.img` | `initramfs_2712` |
+
+Raspberry Pi OS's `raspi-firmware` hooks recognize `-rpi-` kernel flavours;
+they may still print an unsupported-version warning for SPR kernels. The
+separate SPR hooks handle these versions without modifying distro hooks or
+changing module/DKMS paths. Older initramfs updates do not replace a newer
+installed kernel of the same flavour. The two flavours own separate hook
+files and can be installed together.
+
+The firmware partition must be mounted when updating a running Pi. Existing
+`config.txt` settings are preserved: they must select the filenames above
+and the matching initramfs (normally `auto_initramfs=1`, as in SPR images).
+The hooks preserve custom overlay files and copy `overlay_map.dtb` when
+provided by the kernel package.
+
+These hooks are included in newly built packages at Debian package revision
+`3~rpi~trixie`, so they upgrade earlier package revisions even when
+the kernel version is unchanged. Previously published debs are unchanged.
+After installing a package containing the fix, verify the
+firmware image before rebooting, using the installed version rather than
+`uname -r` (which still reports the running kernel):
+
+```bash
+KVER=6.18.60-v8-16k+
+cmp "/boot/vmlinuz-$KVER" /boot/firmware/kernel_2712.img
+cmp "/boot/initrd.img-$KVER" /boot/firmware/initramfs_2712
+```
+
+Boot integration regression tests run when building the builder image. They
+can also run independently on Linux without compiling the kernel:
+
+```bash
+python3 -m unittest discover -s tests -v
 ```
