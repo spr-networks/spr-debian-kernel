@@ -9,8 +9,7 @@ Cross-compiles the full kernel with the following enabled on top of `bcm2712_def
 - KVM + VFIO (PCIe passthrough)
 - Virtio (net, blk, scsi, fs, vsock, 9p)
 
-Includes mac80211/cfg80211 debugfs, the mt7996 fixed-rate TX status fix,
-and periodic data TX status sampling to refresh station rates.
+Includes mac80211/cfg80211 debugfs and the mt7996 fixed-rate TX status fix.
 
 ## Build locally
 
@@ -32,8 +31,8 @@ release tag always builds the same kernel version.
 Push a tag to trigger the GitHub Actions workflow:
 
 ```bash
-git tag v6.18.60-6
-git push origin v6.18.60-6
+git tag v6.18.60-7
+git push origin v6.18.60-7
 ```
 
 ```
