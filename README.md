@@ -32,8 +32,8 @@ release tag always builds the same kernel version.
 Push a tag to trigger the GitHub Actions workflow:
 
 ```bash
-git tag v6.18.60-5
-git push origin v6.18.60-5
+git tag v6.18.60-6
+git push origin v6.18.60-6
 ```
 
 ```
@@ -52,7 +52,24 @@ prerelease and stored in `output/pi4/` for local builds.
 
 ## Install on Pi 5
 
+Starting with `v6.18.60-6`, builds use `6.18.60-spr-rpi-2712` for Pi 5 / CM5 and
+`6.18.60-spr-rpi-v8` for Pi 4. The `-rpi-2712` and `-rpi-v8` suffixes let
+Raspberry Pi OS's existing `raspi-firmware` hooks copy the kernel, initramfs,
+device trees, and overlays to `/boot/firmware`; no SPR boot hooks are added.
+This requires `raspi-firmware` and `initramfs-tools`, a mounted firmware
+partition, and boot configuration selecting those files (normally
+`kernel_2712.img` with `auto_initramfs=1` on Pi 5).
+
+Install the matching image and headers, then verify the boot copies before
+rebooting:
+
 ```bash
 sudo dpkg -i linux-image-*.deb linux-headers-*.deb
+cmp /boot/vmlinuz-6.18.60-spr-rpi-2712 /boot/firmware/kernel_2712.img
+cmp /boot/initrd.img-6.18.60-spr-rpi-2712 /boot/firmware/initramfs_2712
 sudo reboot
 ```
+
+The new release name also changes the module directory; rebuild any DKMS
+modules against the matching headers. Previously published `-v8-16k+` and
+`-v8+` packages, including `v6.18.60-5`, still need manual boot-file setup.

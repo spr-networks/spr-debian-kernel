@@ -13,6 +13,8 @@
 FROM debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Suppress the SCM '+' suffix so raspi-firmware recognizes the kernel flavour.
+ENV LOCALVERSION=""
 
 # ── Build dependencies ─────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -43,6 +45,13 @@ CMD set -ex && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${DEFCONFIG} && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- hardening.config && \
     ./scripts/kconfig/merge_config.sh -m .config /spr.config && \
+    case "${DEFCONFIG}" in \
+        bcm2712_defconfig) flavour=2712 ;; \
+        bcm2711_defconfig) flavour=v8 ;; \
+        *) echo "Unsupported DEFCONFIG: ${DEFCONFIG}" >&2; exit 1 ;; \
+    esac && \
+    ./scripts/config --set-str LOCALVERSION "-spr-rpi-${flavour}" \
+        --disable LOCALVERSION_AUTO && \
     make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig && \
     # Fail when an upstream Kconfig change makes any fragment entry ineffective \
     while IFS= read -r requested; do \
@@ -67,7 +76,7 @@ CMD set -ex && \
     grep 'CONFIG_VIRTIO=y' .config && \
     # ── Build full kernel as .deb packages ───────────────────────── \
     make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-        KDEB_PKGVERSION=5~rpi~trixie \
+        KDEB_PKGVERSION=6~rpi~trixie \
         "DPKG_FLAGS=-d -j$(nproc)" \
         bindeb-pkg && \
     # ── Collect artifacts ────────────────────────────────────────── \
